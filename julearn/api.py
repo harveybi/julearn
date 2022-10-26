@@ -16,6 +16,11 @@ from . pipeline import _create_extended_pipeline
 
 from . utils import logger
 
+# run_cv(X=[...], y=[...], data=[..], column_types=dict(confounds=["sex", age]))
+# for dataframe dict(type=[column_names])
+# for numpy dict(type=[idx])
+# only preprocess  not preprocess_X, confounds
+
 
 def run_cross_validation(
     X, y, model,
@@ -33,7 +38,8 @@ def run_cross_validation(
     model_params=None,
     seed=None,
     n_jobs=None,
-    verbose=0
+    verbose=0,
+    X_types=None
 ):
     """Run cross validation and score.
 
@@ -205,10 +211,14 @@ def run_cross_validation(
 
     cv_return_estimator = return_estimator in ['cv', 'all']
 
-    scores = cross_validate(pipeline, df_X_conf, y, cv=cv_outer,
+    X_names = np.array(list(df_X_conf.columns))
+    X_types = X_types
+    scores = cross_validate(pipeline, df_X_conf.values, y.values, cv=cv_outer,
                             scoring=scorer, groups=df_groups,
                             return_estimator=cv_return_estimator,
-                            n_jobs=n_jobs)
+                            n_jobs=n_jobs,
+                            fit_params=dict(X_names=X_names, X_types=X_types)
+                            )
 
     n_repeats = getattr(cv_outer, 'n_repeats', 1)
     n_folds = len(scores['fit_time']) // n_repeats
@@ -221,7 +231,8 @@ def run_cross_validation(
 
     out = pd.DataFrame(scores)
     if return_estimator in ['final', 'all']:
-        pipeline.fit(df_X_conf, y)
+        pipeline.fit(df_X_conf.values, y.values,
+                     X_names=X_names, X_types=X_types)
         out = out, pipeline
 
     return out

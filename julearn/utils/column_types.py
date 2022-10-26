@@ -1,4 +1,34 @@
 import re
+import numpy as np
+
+
+def mask_columns(regexes, columns):
+    """Returns True for picked elements from a list based on matches
+    to a list of regexs. 
+
+    Parameters
+    ----------
+    regexes : str or list(str)
+        List of regular expressions to match
+    columns : list(str)
+        Elements to pick
+
+    Returns
+    -------
+    mask_picks : list(bool)
+        A list of bools for all elements in columns.
+        True when picked else false.
+
+    Raises
+    ------
+    ValueError
+        If one or more regexes do not match any element in columns
+
+    """
+    picks = pick_columns(regexes, columns)
+    mask = np.array([col in picks for col in columns], dtype=bool)
+
+    return mask
 
 
 def pick_columns(regexes, columns):

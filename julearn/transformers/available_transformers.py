@@ -2,7 +2,6 @@
 #          Sami Hamdan <s.hamdan@fz-juelich.de>
 # License: AGPL
 from . cbpm import CBPM
-from . dataframe import DropColumns, ChangeColumnTypes
 from .. utils import raise_error, warn, logger
 from copy import deepcopy
 from sklearn.decomposition import PCA
@@ -13,8 +12,7 @@ from sklearn.feature_selection import (GenericUnivariateSelect,
                                        SelectPercentile, SelectKBest,
                                        SelectFdr, SelectFpr, SelectFwe,
                                        VarianceThreshold)
-from . confounds import DataFrameConfoundRemover, TargetConfoundRemover
-from . target import TargetTransfromerWrapper, is_targettransformer
+from . confounds import ConfoundRemover
 
 """
 a dictionary containing all supported transformers
@@ -45,11 +43,9 @@ _available_transformers = {
     'cbpm': [CBPM, 'unknown'],
     # DataFrame operations
     'remove_confound': [
-        DataFrameConfoundRemover,
-        'from_transformer'
+        ConfoundRemover,
+        'same'
     ],
-    'drop_columns': [DropColumns, 'subset'],
-    'change_column_types': [ChangeColumnTypes, 'from_transformer']
 }
 
 _available_transformers_reset = deepcopy(_available_transformers)
@@ -60,10 +56,6 @@ _apply_to_default_exceptions = {
 }
 _apply_to_default_exceptions_reset = deepcopy(_apply_to_default_exceptions)
 
-_available_target_transformers = {
-    'zscore': StandardScaler,
-    'remove_confound': TargetConfoundRemover,
-}
 
 _dict_transformer_to_name = {transformer: name
                              for name, (transformer, apply_to) in (
@@ -88,12 +80,10 @@ def list_transformers(target=False):
     out = None
     if target is False:
         out = list(_available_transformers.keys())
-    else:
-        out = list(_available_target_transformers.keys())
     return out
 
 
-def get_transformer(name, target=False, **params):
+def get_transformer(name, **params):
     """Get a transformer
 
     Parameters
@@ -110,23 +100,12 @@ def get_transformer(name, target=False, **params):
         The transformer object.
     """
     out = None
-    if target is False:
-        if name not in _available_transformers:
-            raise_error(
-                f'The specified transformer ({name}) is not available. '
-                f'Valid options are: {list(_available_transformers.keys())}')
-        trans, *_ = _available_transformers[name]
-        out = trans(**params)
-    else:
-        if name not in _available_target_transformers:
-            raise_error(
-                f'The specified target transformer ({name}) is not available. '
-                f'Valid options are: '
-                f'{list(_available_target_transformers.keys())}')
-        trans = _available_target_transformers[name]
-        out = trans(**params)
-        if not is_targettransformer(out):
-            out = TargetTransfromerWrapper(out)
+    if name not in _available_transformers:
+        raise_error(
+            f'The specified transformer ({name}) is not available. '
+            f'Valid options are: {list(_available_transformers.keys())}')
+    trans, *_ = _available_transformers[name]
+    out = trans(**params)
     return out
 
 

@@ -1,15 +1,17 @@
 # Authors: Federico Raimondo <f.raimondo@fz-juelich.de>
 #          Sami Hamdan <s.hamdan@fz-juelich.de>
 # License: AGPL
-from sklearn.pipeline import Pipeline
 from sklearn.base import BaseEstimator, clone
 from sklearn.utils import Bunch
 
-from . transformers import DataFrameWrapTransformer, DropColumns
-from . utils import raise_error
+from .. utils import raise_error
+from .. transformers import check_transformer
+from .feature_typed_pipeline import FeatureTypedPipeline
 
 
-def create_dataframe_pipeline(steps, apply_to=None):
+def create_dataframe_pipeline(steps,
+                              apply_to=None,
+                              apply_to_column_types=None):
     """Creates a sklearn pipeline using the provided steps and wrapping all
     transformers into the DataFrameWrapTransformer.
 
@@ -38,15 +40,10 @@ def create_dataframe_pipeline(steps, apply_to=None):
         if (i_step == len(steps) - 1) and (hasattr(estimator, 'predict')):
             steps_ready_for_pipe.append([name, estimator])
         else:
-            if isinstance(estimator, DataFrameWrapTransformer):
-                transformer = estimator
-            else:
-                transformer = DataFrameWrapTransformer(
-                    transformer=estimator,
-                    apply_to=apply_to)
+            transformer = check_transformer(estimator)
             steps_ready_for_pipe.append([name, transformer])
 
-    return Pipeline(steps=steps_ready_for_pipe)
+    return FeatureTypedPipeline(steps=steps_ready_for_pipe)
 
 
 class ExtendedDataFramePipeline(BaseEstimator):
@@ -96,8 +93,6 @@ class ExtendedDataFramePipeline(BaseEstimator):
 
     """
 
-    column_type_sep = '__:type:__'
-
     def __init__(self, dataframe_pipeline,
                  y_transformer=None,
                  confound_dataframe_pipeline=None,
@@ -110,7 +105,10 @@ class ExtendedDataFramePipeline(BaseEstimator):
         self.confounds = confounds
         self.categorical_features = categorical_features
 
-    def fit(self, X, y=None):
+    def fit(self, X, y=None, **fit_params):
+        X_names = fit_params.get("X_names", None)
+        X_types = fit_params.get("X_types", None)
+
         self.dataframe_pipeline = clone(self.dataframe_pipeline)
         self.confound_dataframe_pipeline = (
             None
@@ -126,9 +124,6 @@ class ExtendedDataFramePipeline(BaseEstimator):
         if self.categorical_features is None:
             self.categorical_features = []
 
-        self._set_column_mappers(X)
-
-        X = self._recode_columns(X)
         if self.confound_dataframe_pipeline is not None:
             X_conf_trans = self._fit_transform_confounds(X, y)
         else:
@@ -138,7 +133,10 @@ class ExtendedDataFramePipeline(BaseEstimator):
             y_true = self.y_transformer.fit_transform(X_conf_trans, y)
         else:
             y_true = y
-        self.dataframe_pipeline.fit(X_conf_trans, y_true)
+        self.dataframe_pipeline.fit(
+            X_conf_trans, y_true,
+            X_names=X_names, X_types=X_types,
+        )
 
         if hasattr(self.dataframe_pipeline, 'classes_'):
             self.classes_ = self.dataframe_pipeline.classes_
@@ -172,7 +170,7 @@ class ExtendedDataFramePipeline(BaseEstimator):
         return y_true
 
     def transform_confounds(self, X):
-        X = self._recode_columns(X)
+        # X = self._recode_columns(X)
         if self.confounds is None or self.confound_dataframe_pipeline is None:
             return X
         else:
@@ -232,8 +230,8 @@ class ExtendedDataFramePipeline(BaseEstimator):
             X_trans = self._remove_column_types(X_trans)
         return X_trans, y_trans
 
-    def fit_transform(self, X, y=None):
-        self.fit(X, y)
+    def fit_transform(self, X, y=None, X_names=None, X_types=None):
+        self.fit(X, y, X_names=X_names, X_types=X_types)
         return self.transform(X)
 
     def set_params(self, **params):
@@ -264,18 +262,20 @@ class ExtendedDataFramePipeline(BaseEstimator):
     @ property
     def named_steps(self):
         steps = self.dataframe_pipeline.named_steps
-        return Bunch(**
-                     {name: self._get_wrapped_step(step)
-                         for name, step in steps.items()
-                      })
+        return Bunch(**steps
+                     # {name: self._get_wrapped_step(step)
+                     #     for name, step in steps.items()
+                     # }
+                     )
 
     @ property
     def named_confound_steps(self):
         steps = self.confound_dataframe_pipeline.named_steps
-        return Bunch(**
-                     {name: self._get_wrapped_step(step)
-                         for name, step in steps.items()
-                      })
+        return Bunch(**steps
+                     # {name: self._get_wrapped_step(step)
+                     #     for name, step in steps.items()
+                     #  }
+                     )
 
     def __getitem__(self, ind):
         if not isinstance(ind, str):
@@ -287,7 +287,7 @@ class ExtendedDataFramePipeline(BaseEstimator):
             element = self.y_transformer
         else:
             element = self.dataframe_pipeline[ind]
-        return self._get_wrapped_step(element)
+        return element  # self._get_wrapped_step(element)
 
     def __repr__(self):
         preprocess_X = clone(self.dataframe_pipeline).steps
@@ -327,7 +327,7 @@ class ExtendedDataFramePipeline(BaseEstimator):
         return '__'.join([new_first] + rest)
 
     def _fit_transform_confounds(self, X, y):
-        X = self._recode_columns(X)
+        # X = self._recode_columns(X)
         if self.confounds is None:
             return X
         else:
@@ -352,14 +352,6 @@ class ExtendedDataFramePipeline(BaseEstimator):
 
         return out_col_name
 
-    def _set_column_mappers(self, X):
-        self.col_name_mapper_ = {col_name: self._convert_column_name(col_name)
-                                 for col_name in X.columns
-                                 }
-
-    def _recode_columns(self, X):
-        return X.rename(columns=self.col_name_mapper_).copy()
-
     def _transform_pipeline_until(self, pipeline, step_name, X):
         X_transformed = X.copy()
         X_transformed = self._recode_columns(X_transformed)
@@ -382,26 +374,27 @@ class ExtendedDataFramePipeline(BaseEstimator):
 
         return X_trans
 
-    @staticmethod
-    def _get_wrapped_step(step):
-        """returns wrapped transformer if a DataFrameWrapTransformer is
-        provided.
-
-        Parameters
-        ----------
-        step : obj
-            A step of a DataFramePipeline
-
-        Returns
-        -------
-        step
-            step if not wrapped else wrapped transformer
-        """
-        step = (step.transformer
-                if isinstance(step, DataFrameWrapTransformer)
-                else step
-                )
-        return step
+    # @staticmethod
+    # def _get_wrapped_step(step):
+    #     """returns wrapped transformer if a DataFrameWrapTransformer is
+    #     provided.
+    #
+    #     Parameters
+    #     ----------
+    #     step : obj
+    #         A step of a DataFramePipeline
+    #
+    #     Returns
+    #     -------
+    #     step
+    #         step if not wrapped else wrapped transformer
+    #     """
+    #     step = (step.transformer
+    #             if isinstance(step, DataFrameWrapTransformer)
+    #             else step
+    #             )
+    #     return step
+    #
 
 
 def _create_extended_pipeline(
@@ -440,16 +433,16 @@ def _create_extended_pipeline(
         or the column_name of one categorical feature
     """
 
-    drop_confounds = DataFrameWrapTransformer(
-        transformer=DropColumns(columns='.*__:type:__confound'),
-        apply_to='all')
+    # drop_confounds = DataFrameWrapTransformer(
+    #     transformer=DropColumns(columns='.*__:type:__confound'),
+    #     apply_to='all')
     X_steps = (
         (list(preprocess_steps_features) +
-         [('drop_confounds', drop_confounds)] +
+         # [('drop_confounds', drop_confounds)] +
          [model])
         if preprocess_steps_features is not None
-        else [(
-            'drop_confounds', drop_confounds),
+        else [  # (
+            # 'drop_confounds', drop_confounds),
             model]
     )
     pipeline = create_dataframe_pipeline(X_steps)
@@ -457,7 +450,7 @@ def _create_extended_pipeline(
     if preprocess_steps_confounds is not None:
         confound_pipe = create_dataframe_pipeline(
             preprocess_steps_confounds,
-            apply_to='confound')
+            apply_to_column_types='confound')
     else:
         confound_pipe = None
 

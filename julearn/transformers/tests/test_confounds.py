@@ -7,8 +7,7 @@ from pandas.testing import assert_frame_equal
 import numpy as np
 from numpy.testing import assert_array_equal
 
-from julearn.transformers.confounds import (DataFrameConfoundRemover,
-                                            TargetConfoundRemover)
+from julearn.transformers.confounds import ConfoundRemover
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.base import clone
@@ -27,7 +26,7 @@ y = np.arange(10)
 
 def test__apply_threshold():
     vals = pd.DataFrame([1e-4, 1e-2, 1e-1, 0, 1])
-    confound_remover = DataFrameConfoundRemover(threshold=1e-2)
+    confound_remover = ConfoundRemover(threshold=1e-2)
     out_pos_vals = confound_remover._apply_threshold(vals)
     out_neg_vals = confound_remover._apply_threshold(-vals)
 
@@ -51,7 +50,7 @@ def test_confound_auto_find_conf():
 
         for model_to_remove in [
                 LinearRegression(), RandomForestRegressor(n_estimators=5)]:
-            confound_remover = DataFrameConfoundRemover(
+            confound_remover = ConfoundRemover(
                 model_confound=model_to_remove)
 
             np.random.seed(42)
@@ -99,7 +98,7 @@ def test_ignore_feature_equal_confound():
     X_feat_eq_conf['c__:type:__continuous'] = X_feat_eq_conf[
         'c__:type:__confound']
 
-    X_removed = DataFrameConfoundRemover().fit_transform(X_feat_eq_conf)
+    X_removed = ConfoundRemover().fit_transform(X_feat_eq_conf)
 
     assert_frame_equal(
         X_feat_eq_conf[['c__:type:__continuous']],
@@ -119,7 +118,7 @@ def test_confound_set_confounds():
         for confounds in confounds_list:
 
             features = X.drop(columns=confounds).columns
-            confound_remover = DataFrameConfoundRemover(
+            confound_remover = ConfoundRemover(
                 model_confound=model_to_remove, confounds_match=confounds)
 
             np.random.seed(42)
@@ -162,36 +161,3 @@ def test_confound_set_confounds():
                 columns=confounds).columns).all()
 
             assert_frame_equal(df_cofound_removed, df_confound_removed_manual)
-
-
-def test_return_confound():
-    remover = DataFrameConfoundRemover(keep_confounds=True)
-    X_trans = remover.fit_transform(X)
-    assert_array_equal(X_trans.columns, X.columns)
-
-
-def test_no_confound_found():
-    _X = pd.DataFrame(dict(a=np.arange(10)))
-    remover = DataFrameConfoundRemover()
-    with pytest.raises(ValueError, match='No confound was found'):
-        remover.fit_transform(_X)
-
-
-def test_no_dataframe_provided():
-
-    remover = DataFrameConfoundRemover()
-    with pytest.raises(ValueError, match='DataFrameConfoundRemover only sup'):
-        remover.fit(X.values)
-
-
-def test_TargetConfoundRemover():
-    target_remover = TargetConfoundRemover()
-    np.random.seed(42)
-    y_transformed = target_remover.fit_transform(X, y)
-    np.random.seed(42)
-    confounds = X.loc[:, ['c__:type:__confound', 'd__:type:__confound']]
-    y_pred = (LinearRegression()
-              .fit(confounds, y)
-              .predict(confounds)
-              )
-    assert_array_equal(y_transformed.values, y - y_pred)

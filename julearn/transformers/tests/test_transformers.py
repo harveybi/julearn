@@ -1,7 +1,6 @@
 # Authors: Federico Raimondo <f.raimondo@fz-juelich.de>
 # License: AGPL
 from julearn.transformers.cbpm import CBPM
-from julearn.transformers.target import TargetTransfromerWrapper
 from sklearn import svm
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import (StandardScaler, RobustScaler, MaxAbsScaler,
@@ -16,12 +15,11 @@ from seaborn import load_dataset
 
 import pytest
 
-from julearn.utils.testing import (do_scoring_test, PassThroughTransformer,
-                                   TargetPassThroughTransformer)
+from julearn.utils.testing import do_scoring_test, PassThroughTransformer
 from julearn.transformers import (
     list_transformers, get_transformer,
     reset_transformer_register, register_transformer,
-    DataFrameConfoundRemover)
+    ConfoundRemover)
 from julearn.transformers.available_transformers import (
     _get_returned_features, _get_apply_to,
     _available_transformers)
@@ -124,12 +122,6 @@ def test_list_get_transformers():
 
     assert isinstance(actual, expected)
 
-    expected = _features_transformers['zscore']
-    actual = get_transformer('zscore', target=True)
-
-    assert isinstance(actual, TargetTransfromerWrapper)
-    assert isinstance(actual.transformer, expected)
-
     with pytest.raises(ValueError, match="is not available"):
         get_transformer('scaler_robust', target=True)
 
@@ -143,19 +135,19 @@ def test__get_returned_features():
         returned_features = _get_returned_features(transformer())
         assert returned_features == _available_transformers[name][1]
 
-    with pytest.warns(RuntimeWarning, match=(
-            'is not a registered '
-            'transformer. '
-            'Therefore, `returned_features`')
-    ):
-        returned_features = _get_returned_features(
-            TargetPassThroughTransformer())
-
-    assert returned_features == 'unknown'
+    # with pytest.warns(RuntimeWarning, match=(
+    #         'is not a registered '
+    #         'transformer. '
+    #         'Therefore, `returned_features`')
+    # ):
+    #     returned_features = _get_returned_features(
+    #         TargetPassThroughTransformer())
+    #
+    # assert returned_features == 'unknown'
 
 
 def test__get_apply_to():
-    apply_to_confound = _get_apply_to(DataFrameConfoundRemover())
+    apply_to_confound = _get_apply_to(ConfoundRemover())
     apply_to_select = _get_apply_to(get_transformer('select_percentile'))
     apply_to_zscore = _get_apply_to(StandardScaler())
 
